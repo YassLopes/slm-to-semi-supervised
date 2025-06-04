@@ -105,29 +105,38 @@ def train_supervised_model(model, tokenizer, labeled_train_dataset, labeled_val_
     
     return trainer, eval_results
 
-def train_semi_supervised_model(model, pseudo_labeled_dataset, labeled_train_dataset, labeled_val_dataset, compute_metrics, output_dir="./results_semi_supervised"):
+def train_semi_supervised_model(model, pseudo_labeled_dataset, labeled_train_dataset, labeled_val_dataset, compute_metrics, output_dir="./results_semi_supervised", combined_training=True):
     """
     Treina o modelo usando dados rotulados e pseudo-rotulados (aprendizado semi-supervisionado).
     
     Args:
         model: Modelo pré-treinado com dados rotulados
-        pseudo_labeled_dataset: Dataset com pseudo-rótulos
+        pseudo_labeled_dataset: Dataset com pseudo-rótulos (pode ser None se combined_training=False)
         labeled_train_dataset: Dataset de treino rotulado
         labeled_val_dataset: Dataset de validação
         compute_metrics: Função para calcular métricas
         output_dir: Diretório para salvar resultados
+        combined_training: Se True, treina com dados combinados; se False, só usa dados rotulados
         
     Returns:
         trainer: Objeto Trainer treinado
         eval_results: Resultados da avaliação
     """
-    # Combinar dados rotulados com pseudo-rotulados
-    combined_dataset = ConcatDataset([labeled_train_dataset, pseudo_labeled_dataset])
+    # Verificar se devemos combinar ou usar apenas dados rotulados
+    if combined_training and pseudo_labeled_dataset is not None:
+        # Combinar dados rotulados com pseudo-rotulados
+        combined_dataset = ConcatDataset([labeled_train_dataset, pseudo_labeled_dataset])
+        train_dataset = combined_dataset
+        print(f"Treinando com dataset combinado: {len(combined_dataset)} amostras")
+    else:
+        # Usar apenas dados rotulados
+        train_dataset = labeled_train_dataset
+        print(f"Treinando apenas com dados rotulados: {len(labeled_train_dataset)} amostras")
     
     # Configurar treinamento
     training_args = get_training_args(
         output_dir=output_dir,
-        num_train_epochs=2  # Menos épocas para o treinamento semi-supervisionado
+        num_train_epochs=3  # Ajuste conforme necessário
     )
     
     data_collator = DataCollatorForTextClassification()
@@ -135,7 +144,7 @@ def train_semi_supervised_model(model, pseudo_labeled_dataset, labeled_train_dat
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=combined_dataset,
+        train_dataset=train_dataset,
         eval_dataset=labeled_val_dataset,
         compute_metrics=compute_metrics,
         data_collator=data_collator,  # Usar o collator personalizado
