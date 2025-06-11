@@ -1,5 +1,5 @@
 import torch
-from torch.utils.data import TensorDataset, ConcatDataset
+from torch.utils.data import TensorDataset
 from transformers import TrainingArguments, Trainer
 from dataclasses import dataclass
 from typing import Dict, List, Union, Optional
@@ -47,7 +47,8 @@ class DataCollatorForTextClassification:
             
         return batch
 
-def get_training_args(output_dir, num_train_epochs=3, batch_size=16, eval_batch_size=64):
+def get_training_args(output_dir, num_train_epochs=3, batch_size=16, eval_batch_size=64, 
+                     learning_rate=2e-5, warmup_steps=500, logging_steps=50):
     """
     Configura os argumentos de treinamento.
     
@@ -56,118 +57,73 @@ def get_training_args(output_dir, num_train_epochs=3, batch_size=16, eval_batch_
         num_train_epochs: Número de épocas de treinamento
         batch_size: Tamanho do batch para treinamento
         eval_batch_size: Tamanho do batch para avaliação
+        learning_rate: Taxa de aprendizado
+        warmup_steps: Passos de aquecimento
+        logging_steps: Frequência de logging
         
     Returns:
         training_args: Argumentos de treinamento configurados
     """
-    # Usar apenas argumentos essenciais básicos
     training_args = TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=num_train_epochs,
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=eval_batch_size,
+        learning_rate=learning_rate,
+        warmup_steps=warmup_steps,
         weight_decay=0.01,
         logging_dir=f"{output_dir}/logs",
+        logging_steps=logging_steps,
+        save_steps=500,
+        eval_steps=500,
+        do_eval=True,
     )
     
     return training_args
 
-def train_supervised_model(model, tokenizer, labeled_train_dataset, labeled_val_dataset, compute_metrics, output_dir="./results_supervised"):
+def train_supervised_model(model, train_dataset, val_dataset, test_dataset, compute_metrics, 
+                          output_dir="./results_supervised", num_epochs=3):
     """
-    Treina o modelo usando apenas dados rotulados (aprendizado supervisionado).
+    Treina o modelo usando aprendizado supervisionado tradicional.
     
     Args:
         model: Modelo a ser treinado
-        tokenizer: Tokenizer usado
-        labeled_train_dataset: Dataset de treino rotulado
-        labeled_val_dataset: Dataset de validação
+        train_dataset: Dataset de treino
+        val_dataset: Dataset de validação
+        test_dataset: Dataset de teste
         compute_metrics: Função para calcular métricas
         output_dir: Diretório para salvar resultados
+        num_epochs: Número de épocas de treinamento
         
     Returns:
         trainer: Objeto Trainer treinado
-        eval_results: Resultados da avaliação
+        eval_results: Resultados da avaliação no conjunto de validação
+        test_results: Resultados da avaliação no conjunto de teste
     """
-    training_args = get_training_args(output_dir)
-    data_collator = DataCollatorForTextClassification()
-    
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=labeled_train_dataset,
-        eval_dataset=labeled_val_dataset,
-        compute_metrics=compute_metrics,
-        data_collator=data_collator,  # Usar o collator personalizado
-    )
-    
-    trainer.train()
-    eval_results = trainer.evaluate()
-    
-    return trainer, eval_results
-
-def train_semi_supervised_model(model, pseudo_labeled_dataset, labeled_train_dataset, labeled_val_dataset, compute_metrics, output_dir="./results_semi_supervised", combined_training=True):
-    """
-    Treina o modelo usando dados rotulados e pseudo-rotulados (aprendizado semi-supervisionado).
-    
-    Args:
-        model: Modelo pré-treinado com dados rotulados
-        pseudo_labeled_dataset: Dataset com pseudo-rótulos (pode ser None se combined_training=False)
-        labeled_train_dataset: Dataset de treino rotulado
-        labeled_val_dataset: Dataset de validação
-        compute_metrics: Função para calcular métricas
-        output_dir: Diretório para salvar resultados
-        combined_training: Se True, treina com dados combinados; se False, só usa dados rotulados
-        
-    Returns:
-        trainer: Objeto Trainer treinado
-        eval_results: Resultados da avaliação
-    """
-    # Verificar se devemos combinar ou usar apenas dados rotulados
-    if combined_training and pseudo_labeled_dataset is not None:
-        # Combinar dados rotulados com pseudo-rotulados
-        combined_dataset = ConcatDataset([labeled_train_dataset, pseudo_labeled_dataset])
-        train_dataset = combined_dataset
-        print(f"Treinando com dataset combinado: {len(combined_dataset)} amostras")
-    else:
-        # Usar apenas dados rotulados
-        train_dataset = labeled_train_dataset
-        print(f"Treinando apenas com dados rotulados: {len(labeled_train_dataset)} amostras")
-    
-    # Configurar treinamento
-    training_args = get_training_args(
-        output_dir=output_dir,
-        num_train_epochs=3  # Ajuste conforme necessário
-    )
-    
+    training_args = get_training_args(output_dir, num_train_epochs=num_epochs)
     data_collator = DataCollatorForTextClassification()
     
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset=labeled_val_dataset,
+        eval_dataset=val_dataset,
         compute_metrics=compute_metrics,
-        data_collator=data_collator,  # Usar o collator personalizado
+        data_collator=data_collator,
     )
     
+    # Treinar o modelo
+    print(f"Iniciando treinamento com {len(train_dataset)} amostras de treino...")
     trainer.train()
+    
+    # Avaliar no conjunto de validação
+    print("Avaliando no conjunto de validação...")
     eval_results = trainer.evaluate()
     
-    return trainer, eval_results
-
-def create_pseudo_labeled_dataset(unlabeled_tokenized, pseudo_labels):
-    """
-    Cria um dataset com pseudo-rótulos.
+    # Avaliar no conjunto de teste
+    print("Avaliando no conjunto de teste...")
+    test_results = trainer.evaluate(eval_dataset=test_dataset)
+    # Adicionar prefixo 'test_' aos resultados de teste para distinguir
+    test_results = {f"test_{k}": v for k, v in test_results.items()}
     
-    Args:
-        unlabeled_tokenized: Tensores tokenizados de dados não rotulados
-        pseudo_labels: Lista de pseudo-rótulos gerados pelo modelo
-        
-    Returns:
-        pseudo_labeled_dataset: TensorDataset com dados pseudo-rotulados
-    """
-    return TensorDataset(
-        unlabeled_tokenized["input_ids"],
-        unlabeled_tokenized["attention_mask"],
-        torch.tensor(pseudo_labels, dtype=torch.long)  # Garantir que os rótulos sejam do tipo long
-    ) 
+    return trainer, eval_results, test_results 

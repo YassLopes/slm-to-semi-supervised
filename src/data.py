@@ -56,73 +56,53 @@ def tokenize_dataset(dataset, tokenizer):
     
     return dataset.map(tokenize_function, batched=True)
 
-def create_semi_supervised_split(tokenized_dataset, dataset, label_encoder, tokenizer, labeled_ratio=0.2):
+def create_supervised_dataset(dataset, label_encoder, tokenizer):
     """
-    Cria divisões de dados para aprendizado semi-supervisionado.
+    Cria um dataset supervisionado completo para treinamento.
     
     Args:
-        tokenized_dataset: Dataset tokenizado
-        dataset: Dataset original com rótulos
+        dataset: Dataset original
         label_encoder: Encoder para os rótulos
         tokenizer: Tokenizer para processar os textos
-        labeled_ratio: Fração de dados rotulados a serem usados
         
     Returns:
-        labeled_dataset: TensorDataset com dados rotulados
-        unlabeled_dataset: TensorDataset com dados não rotulados
-        unlabeled_indices: Índices dos dados não rotulados
-        labeled_indices: Índices dos dados rotulados
-        unlabeled_tokenized: Tokens dos dados não rotulados
+        supervised_dataset: TensorDataset com todos os dados rotulados
     """
-    # Embaralhar os índices
-    train_indices = list(range(len(tokenized_dataset["train"])))
-    random.shuffle(train_indices)
+    # Obter todos os textos e rótulos
+    texts = dataset["train"]["input_text"]
+    labels = dataset["train"]["output_text"]
     
-    # Dividir em conjunto rotulado e não-rotulado
-    num_labeled = int(labeled_ratio * len(train_indices))
-    labeled_indices = train_indices[:num_labeled]
-    unlabeled_indices = train_indices[num_labeled:]
+    # Tokenizar textos
+    tokenized = tokenizer(texts, padding="max_length", truncation=True, max_length=128, return_tensors="pt")
     
-    # Função para codificar os rótulos
-    def encode_labels(labels):
-        return label_encoder.transform(labels)
+    # Codificar rótulos
+    encoded_labels = torch.tensor(label_encoder.transform(labels), dtype=torch.long)
     
-    # Criar conjuntos de dados rotulados
-    labeled_texts = [tokenized_dataset["train"][i]["input_text"] for i in labeled_indices]
-    labeled_tokenized = tokenizer(labeled_texts, padding="max_length", truncation=True, max_length=128, return_tensors="pt")
-    labeled_labels = [dataset["train"][i]["output_text"] for i in labeled_indices]
-    
-    # Converter rótulos para long (corrigido)
-    labeled_encoded_labels = torch.tensor(encode_labels(labeled_labels), dtype=torch.long)
-    
-    labeled_dataset = TensorDataset(
-        labeled_tokenized["input_ids"],
-        labeled_tokenized["attention_mask"],
-        labeled_encoded_labels
+    # Criar TensorDataset
+    supervised_dataset = TensorDataset(
+        tokenized["input_ids"],
+        tokenized["attention_mask"],
+        encoded_labels
     )
     
-    # Criar conjuntos de dados não-rotulados
-    unlabeled_texts = [tokenized_dataset["train"][i]["input_text"] for i in unlabeled_indices]
-    unlabeled_tokenized = tokenizer(unlabeled_texts, padding="max_length", truncation=True, max_length=128, return_tensors="pt")
-    
-    unlabeled_dataset = TensorDataset(
-        unlabeled_tokenized["input_ids"],
-        unlabeled_tokenized["attention_mask"]
-    )
-    
-    return labeled_dataset, unlabeled_dataset, unlabeled_indices, labeled_indices, unlabeled_tokenized
+    return supervised_dataset
 
-def split_train_val(dataset, val_ratio=0.1):
+def split_train_val_test(dataset, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
     """
-    Divide um dataset em conjuntos de treino e validação.
+    Divide um dataset em conjuntos de treino, validação e teste.
     
     Args:
         dataset: Dataset a ser dividido
+        train_ratio: Fração de dados para treino
         val_ratio: Fração de dados para validação
+        test_ratio: Fração de dados para teste
         
     Returns:
-        train_dataset, val_dataset: Datasets de treino e validação
+        train_dataset, val_dataset, test_dataset: Datasets divididos
     """
-    val_size = int(len(dataset) * val_ratio)
-    train_size = len(dataset) - val_size
-    return random_split(dataset, [train_size, val_size]) 
+    total_size = len(dataset)
+    train_size = int(total_size * train_ratio)
+    val_size = int(total_size * val_ratio)
+    test_size = total_size - train_size - val_size
+    
+    return random_split(dataset, [train_size, val_size, test_size]) 

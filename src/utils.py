@@ -41,19 +41,43 @@ def print_dataset_examples(dataset, num_examples=3):
         print(f"Diagnóstico: {dataset['train'][i]['output_text']}")
         print()
 
-def print_comparison_results(eval_results, final_eval_results):
+def print_training_summary(train_size, val_size, test_size, num_labels):
     """
-    Imprime uma comparação dos resultados antes e depois do treinamento semi-supervisionado.
+    Imprime um resumo dos dados de treinamento.
     
     Args:
-        eval_results: Resultados da avaliação após treinamento supervisionado
-        final_eval_results: Resultados da avaliação após treinamento semi-supervisionado
+        train_size: Tamanho do conjunto de treino
+        val_size: Tamanho do conjunto de validação  
+        test_size: Tamanho do conjunto de teste
+        num_labels: Número de classes
     """
-    print("\nComparação dos resultados:")
-    print(f"Acurácia (supervisionado): {eval_results['eval_accuracy']:.4f}")
-    print(f"Acurácia (semi-supervisionado): {final_eval_results['eval_accuracy']:.4f}")
-    print(f"Melhoria na acurácia: {final_eval_results['eval_accuracy'] - eval_results['eval_accuracy']:.4f}")
+    total_size = train_size + val_size + test_size
+    print(f"\nResumo dos dados:")
+    print(f"Total de amostras: {total_size}")
+    print(f"Treino: {train_size} ({train_size/total_size*100:.1f}%)")
+    print(f"Validação: {val_size} ({val_size/total_size*100:.1f}%)")
+    print(f"Teste: {test_size} ({test_size/total_size*100:.1f}%)")
+    print(f"Número de classes: {num_labels}")
+
+def format_metrics(metrics, prefix=""):
+    """
+    Formata métricas para exibição.
     
-    print(f"F1-score (supervisionado): {eval_results['eval_f1']:.4f}")
-    print(f"F1-score (semi-supervisionado): {final_eval_results['eval_f1']:.4f}")
-    print(f"Melhoria no F1-score: {final_eval_results['eval_f1'] - eval_results['eval_f1']:.4f}") 
+    Args:
+        metrics: Dicionário com métricas
+        prefix: Prefixo para as métricas
+        
+    Returns:
+        formatted_str: String formatada com as métricas
+    """
+    if prefix:
+        prefix = f"{prefix}_"
+    
+    formatted = []
+    for key, value in metrics.items():
+        if isinstance(value, float):
+            formatted.append(f"{prefix}{key}: {value:.4f}")
+        else:
+            formatted.append(f"{prefix}{key}: {value}")
+    
+    return " | ".join(formatted) 
